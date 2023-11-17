@@ -95,7 +95,7 @@ class MultiFitProcessor:
                     prio_res = prio
         return getattr(sqlalchemy.types, type_res)
 
-    def _generate_message_sql_dtype_map(self) -> dict[str[dict[str[sqlalchemy.types.TypeEngine]]]]:
+    def _generate_message_sql_dtype_map(self) -> dict[str, dict[str, sqlalchemy.types.TypeEngine]]:
         """Gets a mapping of the message names to field and SQLAlchemy types, from all the loaded fit files.
         
         Structure is {
@@ -202,7 +202,7 @@ class MultiFitProcessor:
         type_sql_map = self._generate_message_sql_dtype_map()
 
         if drop_tables:
-            self._drop_tables(type_sql_map)
+            self._drop_tables()
 
         file_table = self._create_tables(type_sql_map)
 
