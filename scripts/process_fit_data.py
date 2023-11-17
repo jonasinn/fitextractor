@@ -4,7 +4,7 @@ import glob
 
 if __name__ == '__main__':
 
-    filenames = glob.glob("fit_data_clean/**.fit")[:500]
+    filenames = glob.glob("fit_data_clean/**.fit")[:100]
 
     mfe = MultiFitProcessor(filenames, multiprocessing=True)
 

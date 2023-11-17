@@ -88,7 +88,7 @@ class MultiFitProcessor:
     def _assign_field_sql_dtype(self, types) -> sqlalchemy.types.TypeEngine:
         """Takes in a set of dtype names seen for a field across multiple extractors"""
         TYPE_MAPPING = (
-            (pd.api.types.is_datetime64_any_dtype, 'DateTime'),
+            (pd.api.types.is_datetime64_any_dtype, 'TimeStamp'),
             (pd.api.types.is_any_real_numeric_dtype, 'Double'),
             (pd.api.types.is_object_dtype, 'PickleType')
         )
@@ -209,8 +209,10 @@ class MultiFitProcessor:
                     df.to_sql('message_' + message_name, engine, if_exists="append", dtype=dtype_map)
                     print(f".fit {i+1:6.0f} / {n:<6.0f} {df.shape[0]:6.0f} rows -> {message_name}")
                 except Exception as e:
+                    print(f".fit {i+1:6.0f} / {n:<6.0f} {df.shape[0]:6.0f} ERROR IN DB INSERT")
+                    print('-'*50)
                     print(e)
-                    print(df)
+                    print('-'*50)
 
     def to_db(self, db_url: str = DEFAULT_DB_URL, drop_tables: bool = False) -> None:
         """Processes the loaded fit files and insert in DB"""
