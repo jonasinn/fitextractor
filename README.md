@@ -43,6 +43,8 @@ Currently the module is not extensively tested or optimized in any way, I simply
 - Better output while parsing so you know what is happening
 - Feed in or generate a user ID for the uploaded files
 - Create command line tool
+- More sophisticated data type handling
+- Improve perfomance so it does not use GBs of memory with 1000s of files
 - And...
 
 ## License
