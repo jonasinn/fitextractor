@@ -32,6 +32,19 @@ Being tired of bad or data visualization platforms I thought the logical step wa
 
 Currently the module is not extensively tested or optimized in any way, I simply got it to where I need it at the moment to be able to import the stack of files I have lying around.
 
+### DB structure
+
+- Table `fitfiles` is created as an index of all the files parsed with a UUID linking them to the message tables
+- For all fit data message (see [SDK](https://developer.garmin.com/fit/protocol/)) types found in the files a table `message_XYZ` is created. The rows represent each data message with a relationship to the `fitfiles` index through the UUID.
+
+### To dos
+
+- Add filtering for which message types should be added to the db
+- Better output while parsing so you know what is happening
+- Feed in or generate a user ID for the uploaded files
+- Create command line tool
+- And...
+
 ## License
 
 This project is distributed under the terms of the MIT license.
