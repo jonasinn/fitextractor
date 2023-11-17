@@ -4,7 +4,7 @@ A tool to put  [.fit](https://developer.garmin.com/fit/overview/) files in a sql
 
 ## Usage Example
 
-Read a FIT file, frame by frame:
+Read all fit files in a directory and load to a sqlite database
 
 ```python
 
