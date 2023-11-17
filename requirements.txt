@@ -1,5 +1,6 @@
 
-fitdecode==0.10
-numpy==1.26
-pandas==2.1
-SQLAlchemy==2.0
+fitdecode>=0.10
+numpy>=1.26
+pandas>=2.1
+SQLAlchemy>=2.0
+psycopg2>=2.9

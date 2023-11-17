@@ -23,7 +23,8 @@ setup(
         'fitdecode>=0.10',
         'numpy>=1.2',
         'pandas>=2.1',
-        'SQLAlchemy>=2.0'
+        'SQLAlchemy>=2.0',
+        'psycopg2>=2.9'
     ],
     long_description=read('README.md'),
     classifiers=[
