@@ -4,13 +4,12 @@ import glob
 
 if __name__ == '__main__':
 
-    filenames = glob.glob("fit_data_clean/**.fit")[:10]
+    filenames = glob.glob("fit_data_clean/**.fit")[:500]
 
-    sqlite = True
+    mfe = MultiFitProcessor(filenames, multiprocessing=True)
+
+    sqlite = False
     if sqlite:
-        db_url = 'sqlite:///test.db'
-        mfe = MultiFitProcessor(filenames, db_url, multiprocessing=False)
+        mfe.to_db(db_url = 'sqlite:///test.db', drop_tables=True)
     else:
-        mfe = MultiFitProcessor(filenames)
-
-    mfe.to_db(drop_tables=True)
+        mfe.to_db(drop_tables=True)

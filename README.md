@@ -8,15 +8,17 @@ Read all fit files in a directory and load to a sqlite database
 
 ```python
 
-    import glob
-    from fitextractor import MultiFitProcessor
+from fitextractor import MultiFitProcessor 
+import glob
 
-    filenames = glob.glob("fit_files/*.fit")[:10]
+filenames = glob.glob("fit_data_clean/**.fit")[:500]
 
-    db_url = 'sqlite:///test.db'
-    mfe = MultiFitProcessor(filenames, db_url, multiprocessing=False)
+# For multiprocessing to work at __main__ check
+mfe = MultiFitProcessor(filenames, multiprocessing=False)
 
-    mfe.to_db(drop_tables=True)
+# drop_tables recreates the tables every time
+mfe.to_db(db_url = 'sqlite:///test.db', drop_tables=True)
+
 ```
 
 ## Installation
@@ -40,11 +42,12 @@ Currently the module is not extensively tested or optimized in any way, I simply
 ### To dos
 
 - Add filtering for which message types should be added to the db
-- Better output while parsing so you know what is happening
 - Feed in or generate a user ID for the uploaded files
 - Create command line tool
 - More sophisticated data type handling
 - Improve perfomance so it does not use GBs of memory with 1000s of files
+- Implement testing in a meaningful way
+- Handle subsequent adds without nuking the tables
 - And...
 
 ## License
