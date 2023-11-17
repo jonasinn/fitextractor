@@ -2,13 +2,11 @@
 
 __all__ = ['MultiFitProcessor']
 
-import glob
 import os
 import uuid
 
 import typing as t
 from multiprocessing import Pool
-from dataclasses import dataclass
 
 import sqlalchemy
 import pandas as pd
@@ -20,15 +18,21 @@ DEFAULT_DB_URL = 'postgresql://postgres@localhost:5432/fitdata'
 class MultiFitProcessor:
     """Get data from multiple .fit files into a DB.
     
-    Uses multiple FitExtractors and some very rough code to get it in to a postgres DB
+    Uses multiple FitExtractors and some duct tape code to create and populate SQL databases.
     """
 
     def __init__(self, files: list[str], db_url: str = DEFAULT_DB_URL, multiprocessing: bool = True) -> None:  
         self._db_url = db_url      
         self._multiprocessing: bool = multiprocessing
-        self.fes: list[FitExtractor] = [FitExtractor(file) for file in files]
+        self._fes: list[FitExtractor] = [FitExtractor(file) for file in files]
+
+    @property
+    def fes(self) -> list[FitExtractor]:
+        """FitExtractors for the loaded fit files"""
+        return self._fes
 
     def _do_processing(self, inputs: tuple[tuple], function: t.Callable) -> list:
+        """Internal handler to either do things in parallel or loopy"""
         if self._multiprocessing:
             with Pool(os.cpu_count()) as pool:
                 res = pool.starmap(function, inputs)
@@ -40,14 +44,31 @@ class MultiFitProcessor:
         fe.manual_process()
         return fe
 
-    def process_all_manual(self):
+    def process_all_manual(self) -> list[FitExtractor]:
         """Processes all fit files and generate the message data"""
         return self._do_processing(tuple((fe,) for fe in self.fes), self._process_single_manual)
 
-    def get_message_names(self):
+    def get_message_names(self) -> tuple[str]:
+        """Gets a list of the message names found in the loaded fit files"""
         return tuple(set(name for fe in self.fes for name in fe.summary.names))
     
-    def get_message_types(self):
+    def get_message_types(self) -> dict[str,dict[str,tuple[str]]]:
+        """Gets a mapping of the message names to fields and their datatypes, by looking through all the loaded fit files.
+
+        The field's datatypes are sets of all the seen types through the files.
+        Types are the str names of the dataframe dtypes generated using FitExtractor.get_message_df
+        
+        Structure is {
+            message_name1: {
+                field_name1: (type1, type2),
+                field_name2: (type1, type3),
+                field_name3: (type2)
+            },
+            message_name2: {
+                ...
+            }
+        }
+        """
         mns = self.get_message_names()
         res = {}
         # Loop all message types
@@ -58,9 +79,9 @@ class MultiFitProcessor:
             res[mn] = {col: tuple(set(mtypes[col].dropna().values)) for col in mtypes.columns.values}
         return res
     
-    def _assign_field_sql_dtype(self, types):
-        """Takes in a set of dtypes seen for a field across multiple extractors"""
-        type_mapping = (
+    def _assign_field_sql_dtype(self, types) -> sqlalchemy.types.TypeEngine:
+        """Takes in a set of dtype names seen for a field across multiple extractors"""
+        TYPE_MAPPING = (
             (pd.api.types.is_datetime64_any_dtype, 'DateTime'),
             (pd.api.types.is_any_real_numeric_dtype, 'Double'),
             (pd.api.types.is_object_dtype, 'PickleType')
@@ -68,13 +89,27 @@ class MultiFitProcessor:
         prio_res = 0
         type_res = 'Text' # Default if none of above
         for type in types: 
-            for prio, (fun, val) in enumerate(type_mapping):
+            for prio, (fun, val) in enumerate(TYPE_MAPPING):
                 if prio >= prio_res and fun(type):
                     type_res = val
                     prio_res = prio
         return getattr(sqlalchemy.types, type_res)
 
-    def generate_message_sql_dtype_map(self):
+    def _generate_message_sql_dtype_map(self) -> dict[str[dict[str[sqlalchemy.types.TypeEngine]]]]:
+        """Gets a mapping of the message names to field and SQLAlchemy types, from all the loaded fit files.
+        
+        Structure is {
+            message_name1: {
+                field_name1: sqlalchemy_type1
+                field_name2: sqlalchemy_type2
+                field_name3: sqlalchemy_type2
+            },
+            message_name2: {
+                ...
+            }
+        }
+        """
+
         names = self.get_message_names()
         types = self.get_message_types()
 
@@ -82,10 +117,11 @@ class MultiFitProcessor:
 
         return message_sql_dtype_map
     
-    def _create_engine(self):
+    def _create_engine(self) -> sqlalchemy.Engine:
         return sqlalchemy.create_engine(self._db_url)
     
-    def _clean_tables(self, type_sql_map: dict):
+    def _drop_tables(self) -> None:
+        "Drop the tables"
 
         engine = self._create_engine()
         
@@ -96,7 +132,8 @@ class MultiFitProcessor:
         metadata.reflect(bind=engine)
         metadata.drop_all(bind=engine)
 
-    def _create_tables(self, type_sql_map: dict):
+    def _create_tables(self, type_sql_map: dict) -> sqlalchemy.Table:
+        """Creates the required tables using the type mapping information"""
 
         engine = self._create_engine()
 
@@ -124,7 +161,8 @@ class MultiFitProcessor:
 
         return fitfile_table
 
-    def _add_fit_message_data_to_table(self, fe: FitExtractor, type_sql_map: dict, fitfile_table: sqlalchemy.Table):
+    def _add_fit_message_data_to_table(self, fe: FitExtractor, type_sql_map: dict, fitfile_table: sqlalchemy.Table) -> None:
+        """The meat and potatoes - take a fit extractor and load to DB """
         
         engine = self._create_engine()
 
@@ -156,16 +194,15 @@ class MultiFitProcessor:
                     print(e)
                     print(df)
 
-        return True
-
-    def to_db(self, drop_tables: bool = False):
+    def to_db(self, drop_tables: bool = False) -> None:
+        """Processes the loaded fit files and insert in DB"""
         
         self.process_all_manual()
 
-        type_sql_map = self.generate_message_sql_dtype_map()
+        type_sql_map = self._generate_message_sql_dtype_map()
 
         if drop_tables:
-            self._clean_tables(type_sql_map)
+            self._drop_tables(type_sql_map)
 
         file_table = self._create_tables(type_sql_map)
 
