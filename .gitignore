@@ -1,6 +1,7 @@
 .vscode
 
 fit_data*
+test.db
 .DS_Store
 
 # Standard .py

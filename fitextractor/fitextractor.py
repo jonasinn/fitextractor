@@ -164,7 +164,4 @@ class FitExtractor:
             raise Exception(f'{name} not in file messages')
 
 if __name__ == '__main__':
-    file = './test/test_files/f1.fit'
-    fe = FitExtractor(file)
-    summary = fe.summary
-    print('done')
+    pass

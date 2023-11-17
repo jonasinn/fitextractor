@@ -4,27 +4,18 @@ __all__ = ['MultiFitProcessor']
 
 import glob
 import os
-import time
 import uuid
 
 import typing as t
 from multiprocessing import Pool
 from dataclasses import dataclass
 
-import psycopg2
 import sqlalchemy
 import pandas as pd
 
 from fitextractor import FitExtractor
 
-@dataclass
-class DbConfig:
-    user: str = 'postgres'
-    password: str = ''
-    name: str = 'fitdata'
-    host: str = 'localhost'
-    port: int = 5432
-    dialect_driver: str = 'postgresql'
+DEFAULT_DB_URL = 'postgresql://postgres@localhost:5432/fitdata'
 
 class MultiFitProcessor:
     """Get data from multiple .fit files into a DB.
@@ -32,17 +23,17 @@ class MultiFitProcessor:
     Uses multiple FitExtractors and some very rough code to get it in to a postgres DB
     """
 
-    def __init__(self, files: list[str], dbconfig = DbConfig(), multiprocessing: bool = True) -> None:        
-        self._dbconfig = dbconfig
+    def __init__(self, files: list[str], db_url: str = DEFAULT_DB_URL, multiprocessing: bool = True) -> None:  
+        self._db_url = db_url      
         self._multiprocessing: bool = multiprocessing
         self.fes: list[FitExtractor] = [FitExtractor(file) for file in files]
 
-    def _do_processing(self, inputs: list, function: t.Callable) -> list:
+    def _do_processing(self, inputs: tuple[tuple], function: t.Callable) -> list:
         if self._multiprocessing:
             with Pool(os.cpu_count()) as pool:
-                res = pool.map(function, inputs)
+                res = pool.starmap(function, inputs)
         else:
-            res = list(function(input) for input in inputs)
+            res = list(function(*input) for input in inputs)
         return res
     
     def _process_single_manual(self, fe: FitExtractor) -> FitExtractor:
@@ -51,7 +42,7 @@ class MultiFitProcessor:
 
     def process_all_manual(self):
         """Processes all fit files and generate the message data"""
-        self._do_processing(self.fes, self._process_single_manual)
+        return self._do_processing(tuple((fe,) for fe in self.fes), self._process_single_manual)
 
     def get_message_names(self):
         return tuple(set(name for fe in self.fes for name in fe.summary.names))
@@ -70,12 +61,12 @@ class MultiFitProcessor:
     def _assign_field_sql_dtype(self, types):
         """Takes in a set of dtypes seen for a field across multiple extractors"""
         type_mapping = (
-            (pd.api.types.is_datetime64_any_dtype, 'TIMESTAMP'),
-            (pd.api.types.is_any_real_numeric_dtype, 'DOUBLE_PRECISION'),
-            (pd.api.types.is_object_dtype, 'TEXT')
+            (pd.api.types.is_datetime64_any_dtype, 'DateTime'),
+            (pd.api.types.is_any_real_numeric_dtype, 'Double'),
+            (pd.api.types.is_object_dtype, 'PickleType')
         )
         prio_res = 0
-        type_res = 'TEXT' # Default if none of above
+        type_res = 'Text' # Default if none of above
         for type in types: 
             for prio, (fun, val) in enumerate(type_mapping):
                 if prio >= prio_res and fun(type):
@@ -92,21 +83,19 @@ class MultiFitProcessor:
         return message_sql_dtype_map
     
     def _create_engine(self):
-        if self._dbconfig.password == '':
-            url = f"{self._dbconfig.dialect_driver}://{self._dbconfig.user}@{self._dbconfig.host}:{self._dbconfig.port}/{self._dbconfig.name}"
-        else:
-            url = f"{self._dbconfig.dialect_driver}://{self._dbconfig.user}:{self._dbconfig.password}@{self._dbconfig.host}:{self._dbconfig.port}/{self._dbconfig.name}"
-        return sqlalchemy.create_engine(url)
+        return sqlalchemy.create_engine(self._db_url)
     
     def _clean_tables(self, type_sql_map: dict):
-        con = psycopg2.connect("dbname=fitdata user=jgj")
-        cur = con.cursor()
-        cur.execute(f"DROP TABLE IF EXISTS fitfiles CASCADE;") # Should drop all
-        for name in type_sql_map.keys():
-            cur.execute(f"DROP TABLE IF EXISTS message_{name};")
-        con.commit()
-        con.close()
-  
+
+        engine = self._create_engine()
+        
+        with engine.connect() as con:
+            con.commit()
+
+        metadata = sqlalchemy.MetaData()
+        metadata.reflect(bind=engine)
+        metadata.drop_all(bind=engine)
+
     def _create_tables(self, type_sql_map: dict):
 
         engine = self._create_engine()
@@ -115,10 +104,10 @@ class MultiFitProcessor:
         fitfile_table = sqlalchemy.Table(
             "fitfiles",
             meta,
-            sqlalchemy.Column("uuid", sqlalchemy.types.UUID, primary_key=True),
+            sqlalchemy.Column("uuid", sqlalchemy.types.UUID if 'sqlite' not in self._db_url else sqlalchemy.types.String(36), primary_key=True),
             sqlalchemy.Column("filename", sqlalchemy.types.String(255), nullable=False),
             sqlalchemy.Column("md5_hash", sqlalchemy.types.String(32), nullable=False),
-            sqlalchemy.Column("message_types", sqlalchemy.types.ARRAY(sqlalchemy.types.String(255)), nullable=False),
+            sqlalchemy.Column("message_types", sqlalchemy.types.ARRAY(sqlalchemy.types.String(255)) if 'sqlite' not in self._db_url else sqlalchemy.types.String(36), nullable=False),
             sqlalchemy.Column("blob", sqlalchemy.types.LargeBinary, nullable=False)
         )
         fitfile_table.create(engine)
@@ -128,7 +117,7 @@ class MultiFitProcessor:
             table = sqlalchemy.Table(
                 f"message_{message_name}",
                 meta,
-                sqlalchemy.Column("fitfile_uuid", sqlalchemy.types.UUID, sqlalchemy.ForeignKey('fitfiles.uuid')),
+                sqlalchemy.Column("fitfile_uuid", sqlalchemy.types.UUID if 'sqlite' not in self._db_url else sqlalchemy.types.String(36), sqlalchemy.ForeignKey('fitfiles.uuid')),
                 sqlalchemy.Column('index', sqlalchemy.types.BIGINT),
                 *columns)
             table.create(engine)
@@ -145,10 +134,10 @@ class MultiFitProcessor:
         fitfile_uuid = uuid.uuid4()
 
         statement = fitfile_table.insert().values(
-                        uuid=fitfile_uuid,
+                        uuid=fitfile_uuid if 'sqlite' not in self._db_url else str(fitfile_uuid),
                         filename=fe.file.split('/')[-1],
                         md5_hash=fe.md5_hash,
-                        message_types=fe.summary.names,
+                        message_types=fe.summary.names if 'sqlite' not in self._db_url else str(fe.summary.names),
                         blob = data_blob
                     )
         
@@ -161,7 +150,7 @@ class MultiFitProcessor:
                 try:
                     print(f"Creating table {message_name} for {fe._file}")
                     df = fe.get_message_df(message_name)
-                    df["fitfile_uuid"] = fitfile_uuid
+                    df["fitfile_uuid"] = fitfile_uuid if 'sqlite' not in self._db_url else str(fitfile_uuid)
                     df.to_sql('message_' + message_name, engine, if_exists="append", dtype=dtype_map)
                 except Exception as e:
                     print(e)
@@ -169,26 +158,18 @@ class MultiFitProcessor:
 
         return True
 
-    def to_db(self):
+    def to_db(self, drop_tables: bool = False):
         
         self.process_all_manual()
 
         type_sql_map = self.generate_message_sql_dtype_map()
 
-        self._clean_tables(type_sql_map)
+        if drop_tables:
+            self._clean_tables(type_sql_map)
 
         file_table = self._create_tables(type_sql_map)
 
-        with Pool(os.cpu_count()) as pool:
-            res = pool.starmap(self._add_fit_message_data_to_table, ((fe, type_sql_map, file_table) for fe in self.fes))
-
-
+        res = self._do_processing(((fe, type_sql_map, file_table) for fe in self.fes), self._add_fit_message_data_to_table)
     
 if __name__ == '__main__':
-    import glob
-    import time
-    filenames = glob.glob("fit_data_clean/**.fit")[:50]
-
-    mfe = MultiFitProcessor(filenames)
-    
-    mfe.to_db()
+   pass
