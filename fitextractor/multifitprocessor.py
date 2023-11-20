@@ -88,12 +88,13 @@ class MultiFitProcessor:
     def _assign_field_sql_dtype(self, types) -> sqlalchemy.types.TypeEngine:
         """Takes in a set of dtype names seen for a field across multiple extractors"""
         TYPE_MAPPING = (
-            (pd.api.types.is_datetime64_any_dtype, 'TimeStamp'),
             (pd.api.types.is_any_real_numeric_dtype, 'Double'),
+            (pd.api.types.is_datetime64_any_dtype, 'DateTime'),
+            (pd.api.types.is_string_dtype, 'Text'),
             (pd.api.types.is_object_dtype, 'PickleType')
         )
         prio_res = 0
-        type_res = 'Text' # Default if none of above
+        type_res = 'PickleType' # Default if none of above
         for type in types: 
             for prio, (fun, val) in enumerate(TYPE_MAPPING):
                 if prio >= prio_res and fun(type):
@@ -121,6 +122,14 @@ class MultiFitProcessor:
 
         message_sql_dtype_map = {name: {field: self._assign_field_sql_dtype(field_types) for field, field_types in types[name].items()} for name in names}
 
+        for n, m in message_sql_dtype_map.items():
+            if 'timestamp' in m:
+                if m['timestamp'] != sqlalchemy.types.DateTime:
+                    for fe in fes:
+                        if n in fe.summary.names:
+                            if fe.get_message_df(n).timestamp.dtype.name != 'datetime64[ns, UTC]': 
+                                print('asdf')
+
         return message_sql_dtype_map
     
     def _create_engine(self, db_url: str) -> sqlalchemy.Engine:
@@ -137,6 +146,8 @@ class MultiFitProcessor:
         metadata = sqlalchemy.MetaData()
         metadata.reflect(bind=engine)
         metadata.drop_all(bind=engine)
+
+        engine.dispose()
 
     def _create_tables(self, type_sql_map: dict, db_url: str) -> sqlalchemy.Table:
         """Creates the required tables using the type mapping information"""
@@ -176,6 +187,8 @@ class MultiFitProcessor:
                 *columns)
             table.create(engine)
             print_table(table)
+        
+        engine.dispose()
 
         return fitfile_table
 
@@ -213,6 +226,8 @@ class MultiFitProcessor:
                     print('-'*50)
                     print(e)
                     print('-'*50)
+        
+        engine.dispose()
 
     def to_db(self, db_url: str = DEFAULT_DB_URL, drop_tables: bool = False) -> None:
         """Processes the loaded fit files and insert in DB"""
@@ -220,6 +235,7 @@ class MultiFitProcessor:
         print("Preprocessing files to get data type information for table creation\n")
         fes_proc = self.process_all_manual()
 
+        print("Creating table type maps...")
         type_sql_map = self._generate_message_sql_dtype_map(fes_proc)
 
         # Dropping tables - if desired

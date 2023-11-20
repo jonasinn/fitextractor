@@ -1,16 +1,26 @@
 
 __all__ = ['FitMessage', 'MessageSummary', 'FitExtractor']
 
+import datetime
 import hashlib
-import fitdecode
 import typing as t
-
 from dataclasses import dataclass
+from collections import OrderedDict
 
 import pandas as pd
 import numpy as np
 
+import fitdecode
+
 Fileish: t.TypeAlias = str | t.BinaryIO
+
+TYPE_MAP_INCL_PRIO = OrderedDict([
+    ('int64', [int]),
+    ('float64', [float]),
+    ('str', [str]),
+    ('object', [tuple]),
+    ('datetime64[ns, UTC]', [datetime.datetime])
+])
 
 @dataclass
 class FitField:
@@ -153,13 +163,35 @@ class FitExtractor:
             
         self._summary = MessageSummary(message_infos)
     
+    def _clean_df_types(self, df: pd.DataFrame):
+        """Find mixed columns, use rules for type priorities to select appropriate"""
+
+        for col in df.columns:
+            # Find mixed types
+            if 'mixed' in pd.api.types.infer_dtype(df[col]):
+                col_types = [type(v) for v in df[col]]
+
+                # Loop throuh type map and assign new col type
+                prio_res = 0
+                type_res = 'object'
+                for col_type in col_types:
+                    for prio, (np_type, p_types) in enumerate(TYPE_MAP_INCL_PRIO.items()):
+                        if col_type in p_types and prio >= prio_res:
+                            prio_res = prio
+                            type_res = np_type
+                df[col] = df[col].astype(type_res)
+
+        return df
     
     def get_message_df(self, name: str, target_attr: str = 'value') -> pd.DataFrame:
         """Get a dataframe with the message type name"""
         self._ensure_processed()
         if name in self._messages:
             row_data = [{field.name: getattr(field, target_attr) for field in message_fields} for message_fields in self._messages[name]]
-            return pd.DataFrame(row_data).dropna(axis=1, how='all') # Drop columns with all na -> leads to strange dtypes
+            df = pd.DataFrame(row_data)
+            df = df.dropna(axis=1, how='all').reset_index(drop=True) # Drop columns with all na -> leads to strange dtypes
+            df = self._clean_df_types(df) # Clean mixed types
+            return df
         else:
             raise Exception(f'{name} not in file messages')
 

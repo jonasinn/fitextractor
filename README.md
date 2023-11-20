@@ -11,13 +11,17 @@ Read all fit files in a directory and load to a sqlite database
 from fitextractor import MultiFitProcessor 
 import glob
 
-filenames = glob.glob("fit_data_clean/**.fit")[:500]
+if __name__ == '__main__':
 
-# For multiprocessing to work at __main__ check
-mfe = MultiFitProcessor(filenames, multiprocessing=False)
+    filenames = glob.glob("fit_data/**.fit")
 
-# drop_tables recreates the tables every time
-mfe.to_db(db_url = 'sqlite:///test.db', drop_tables=True)
+    mfe = MultiFitProcessor(filenames, multiprocessing=True)
+
+    sqlite = False
+    if sqlite:
+        mfe.to_db(db_url = 'sqlite:///test.db', drop_tables=True)
+    else:
+        mfe.to_db(drop_tables=True)
 
 ```
 
@@ -25,8 +29,9 @@ mfe.to_db(db_url = 'sqlite:///test.db', drop_tables=True)
 
 Currently you can install it from github
 
-    $ pip install git+git@github.com:jonasinn/fitextractor.git
-
+```
+pip install git+https://github.com/jonasinn/fitextractor.git
+```
 
 ## Why?
 

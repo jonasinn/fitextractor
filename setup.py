@@ -11,7 +11,7 @@ def read(fname):
 
 setup(
     name = "fitextractor",
-    version = "0.0.1",
+    version = "0.0.2",
     author = "Jónas Grétar Jónasson",
     author_email = "jonasgretar@gmail.com",
     description = ("A library to load fit files in to sql databases, currently postgres and sqlite."),
